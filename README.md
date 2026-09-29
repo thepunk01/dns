@@ -86,8 +86,8 @@ sudo bash /opt/dns-guardian/deploy/update.sh
 将项目推送到 GitHub 后，在全新的 Linux 服务器执行下面一条命令即可安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/你的账号/dns-guardian/main/deploy/install.sh \
-  | sudo bash -s -- --repo https://github.com/你的账号/dns-guardian.git
+curl -fsSL https://raw.githubusercontent.com/thepunk01/dns/main/deploy/install.sh \
+  | sudo bash -s -- --repo https://github.com/thepunk01/dns.git
 ```
 
 安装脚本会自动：
@@ -103,11 +103,27 @@ curl -fsSL https://raw.githubusercontent.com/你的账号/dns-guardian/main/depl
 也支持自定义目录和分支：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/你的账号/dns-guardian/main/deploy/install.sh \
+curl -fsSL https://raw.githubusercontent.com/thepunk01/dns/main/deploy/install.sh \
   | sudo bash -s -- \
-    --repo https://github.com/你的账号/dns-guardian.git \
+    --repo https://github.com/thepunk01/dns.git \
     --dir /opt/dns-guardian \
     --branch main
 ```
 
 注意：iStoreOS/OpenWrt 这类路由系统通常没有完整 Node.js/npm 和 systemd，建议把管理后台安装在 Debian 12/Ubuntu 22.04+ 服务器，路由器只作为被监测节点。
+
+## 在管理面板配置密钥
+
+安装完成后打开管理页面，滚动到页面底部的“系统设置”，可以直接填写：
+
+- Cloudflare API Token
+- Cloudflare Zone ID
+- AWS Region
+- AWS CLI 路径或命令
+- 国内探测端点
+- 自动检测间隔
+- 模拟模式 / 真实接口模式
+
+保存后会写入服务器本地 `.env`，Token 不会在页面回显。`.env` 已加入 `.gitignore`，不会推送到 GitHub。
+
+当前版本尚未内置管理员登录。正式公网使用时，建议先通过安全组限制 `8787` 来源，或在 Nginx/Caddy 前面增加 HTTPS 和 Basic Auth。

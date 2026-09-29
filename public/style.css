@@ -219,6 +219,120 @@ button:hover {
   font-size: 13px;
 }
 
+.settings-panel {
+  margin-bottom: 24px;
+}
+
+.settings-form {
+  margin-top: 18px;
+}
+
+.switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.switch-row strong,
+.switch-row small,
+.settings-form label > span,
+.settings-form label small {
+  display: block;
+}
+
+.switch-row small,
+.settings-form label small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+.switch i {
+  position: absolute;
+  inset: 0;
+  border-radius: 99px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.switch i::before {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  content: "";
+  transition: 0.2s;
+}
+
+.switch input:checked + i {
+  background: var(--primary);
+}
+
+.switch input:checked + i::before {
+  transform: translateX(20px);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.settings-form label:not(.switch-row) {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.settings-form label.wide {
+  grid-column: span 2;
+}
+
+.settings-form input:not([type="checkbox"]) {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 11px;
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-form input:focus {
+  outline: 2px solid var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+
 .table-wrap {
   margin-top: 16px;
   overflow-x: auto;
@@ -355,7 +469,12 @@ td {
   }
 
   .stats,
-  .grid {
+  .grid,
+  .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-form label.wide {
+    grid-column: auto;
   }
 }

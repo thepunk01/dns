@@ -2,7 +2,8 @@ const state = {
   overview: null,
   domains: [],
   servers: [],
-  events: []
+  events: [],
+  settings: null
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -18,21 +19,24 @@ async function api(path, options = {}) {
 }
 
 async function refresh() {
-  const [overview, domains, servers, events] = await Promise.all([
+  const [overview, domains, servers, events, settings] = await Promise.all([
     api("/api/overview"),
     api("/api/domains"),
     api("/api/servers"),
-    api("/api/events")
+    api("/api/events"),
+    api("/api/settings")
   ]);
   state.overview = overview;
   state.domains = domains;
   state.servers = servers;
   state.events = events;
+  state.settings = settings;
   render();
 }
 
 function render() {
   $("#modeBadge").textContent = state.overview.mockMode ? "模拟模式" : "真实接口";
+  renderSettings();
   const stats = state.overview.stats;
   $("#stats").innerHTML = [
     ["域名解析", stats.domains, "Cloudflare 记录"],
@@ -107,6 +111,19 @@ function render() {
   `).join("") : `<div class="event"><strong>暂无事件</strong><span>系统启动后会记录自动化动作。</span></div>`;
 }
 
+function renderSettings() {
+  const settings = state.settings;
+  if (!settings) return;
+  $("#mockMode").checked = settings.mockMode;
+  $("#cfZoneId").value = settings.cfZoneId || "";
+  $("#awsRegion").value = settings.awsRegion || "";
+  $("#awsCliBin").value = settings.awsCliBin || "aws";
+  $("#probeEndpoints").value = settings.probeEndpoints || "";
+  $("#speedTestPath").value = settings.speedTestPath || "/speedtest.bin";
+  $("#autoIntervalSeconds").value = settings.autoIntervalSeconds || 60;
+  $("#tokenStatus").textContent = settings.cfApiTokenConfigured ? "当前 Token 已配置，留空则保持不变" : "当前未配置 Token";
+}
+
 function statusPill(status, gfwStatus) {
   if (gfwStatus === "blocked") return pill("bad", "被墙");
   if (status === "reachable") return pill("ok", "健康");
@@ -166,5 +183,24 @@ function toast(text) {
 }
 
 $("#runProbe").addEventListener("click", runProbe);
+$("#settingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await act("正在保存系统设置", async () => {
+    await api("/api/settings", {
+      method: "POST",
+      body: JSON.stringify({
+        mockMode: $("#mockMode").checked,
+        cfApiToken: $("#cfApiToken").value,
+        cfZoneId: $("#cfZoneId").value,
+        awsRegion: $("#awsRegion").value,
+        awsCliBin: $("#awsCliBin").value,
+        probeEndpoints: $("#probeEndpoints").value,
+        speedTestPath: $("#speedTestPath").value,
+        autoIntervalSeconds: Number($("#autoIntervalSeconds").value)
+      })
+    });
+    $("#cfApiToken").value = "";
+  });
+});
 refresh();
 setInterval(refresh, 15000);

@@ -22,6 +22,7 @@
         <a>GFW 检测</a>
         <a>实时速率</a>
         <a>事件日志</a>
+        <a href="#settings">系统设置</a>
       </nav>
     </aside>
 
@@ -111,6 +112,64 @@
           </div>
           <div id="events" class="events"></div>
         </div>
+      </section>
+
+      <section class="panel settings-panel" id="settings">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Settings</p>
+            <h2>系统设置</h2>
+          </div>
+          <span class="hint">保存后立即生效，并写入服务器本地配置</span>
+        </div>
+        <form id="settingsForm" class="settings-form">
+          <label class="switch-row">
+            <span>
+              <strong>运行模式</strong>
+              <small>关闭后启用真实 Cloudflare / AWS 接口</small>
+            </span>
+            <span class="switch">
+              <input id="mockMode" type="checkbox" />
+              <i></i>
+            </span>
+          </label>
+          <div class="form-grid">
+            <label>
+              <span>Cloudflare API Token</span>
+              <input id="cfApiToken" type="password" placeholder="留空保持当前 Token" autocomplete="new-password" />
+              <small id="tokenStatus"></small>
+            </label>
+            <label>
+              <span>Cloudflare Zone ID</span>
+              <input id="cfZoneId" placeholder="例如：023e105f4ecef8ad9ca31a8372d0c353" />
+            </label>
+            <label>
+              <span>AWS Region</span>
+              <input id="awsRegion" placeholder="例如：ap-east-1" />
+            </label>
+            <label>
+              <span>AWS CLI 路径或命令</span>
+              <input id="awsCliBin" placeholder="默认 aws" />
+            </label>
+            <label class="wide">
+              <span>国内探测端点</span>
+              <input id="probeEndpoints" placeholder="多个地址用英文逗号分隔" />
+              <small>端点需返回 JSON：reachable、latencyMs</small>
+            </label>
+            <label>
+              <span>速率测试路径</span>
+              <input id="speedTestPath" placeholder="/speedtest.bin" />
+            </label>
+            <label>
+              <span>自动检测间隔（秒）</span>
+              <input id="autoIntervalSeconds" type="number" min="15" step="1" />
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button type="submit" class="primary">保存设置</button>
+            <span class="hint">最低检测间隔为 15 秒</span>
+          </div>
+        </form>
       </section>
     </main>
 

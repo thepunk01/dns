@@ -11,10 +11,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 const dataDir = path.join(__dirname, "data");
 const storePath = path.join(dataDir, "store.json");
+const envPath = path.join(__dirname, ".env");
 
 const env = loadEnv();
 const config = {
   port: Number(env.PORT || 8787),
+  host: env.HOST || "0.0.0.0",
   appName: env.APP_NAME || "DNS Guardian",
   mockMode: String(env.MOCK_MODE ?? "true").toLowerCase() !== "false",
   cfApiToken: env.CF_API_TOKEN || "",
@@ -28,6 +30,7 @@ const config = {
 
 let state = await loadStore();
 let automationRunning = false;
+let automationTimer;
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -44,14 +47,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(config.port, "127.0.0.1", () => {
-  console.log(`${config.appName} listening on http://127.0.0.1:${config.port}`);
+server.listen(config.port, config.host, () => {
+  console.log(`${config.appName} listening on http://${config.host}:${config.port}`);
   logEvent("system", "服务启动", `管理后台已启动，模式：${config.mockMode ? "模拟" : "真实"}`);
 });
 
-setInterval(() => {
-  runAutomation().catch((error) => logEvent("error", "自动化执行失败", error.message));
-}, Math.max(config.autoIntervalSeconds, 15) * 1000);
+scheduleAutomation();
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/overview") {
@@ -85,6 +86,19 @@ async function handleApi(req, res, url) {
 
   if (req.method === "GET" && url.pathname === "/api/events") {
     sendJson(res, 200, state.events.slice(-80).reverse());
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/settings") {
+    sendJson(res, 200, getSettings());
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/settings") {
+    const body = await readBody(req);
+    await updateSettings(body);
+    logEvent("system", "保存系统设置", `运行模式已切换为${config.mockMode ? "模拟模式" : "真实接口"}`);
+    sendJson(res, 200, { ok: true, settings: getSettings() });
     return;
   }
 
@@ -398,6 +412,75 @@ async function loadStore() {
 async function saveStore() {
   state.updatedAt = new Date().toISOString();
   await fs.writeFile(storePath, JSON.stringify(state, null, 2));
+}
+
+function getSettings() {
+  return {
+    mockMode: config.mockMode,
+    cfApiTokenConfigured: Boolean(config.cfApiToken),
+    cfZoneId: config.cfZoneId,
+    awsRegion: config.awsRegion,
+    awsCliBin: config.awsCliBin,
+    probeEndpoints: config.probeEndpoints.join(","),
+    speedTestPath: config.speedTestPath,
+    autoIntervalSeconds: config.autoIntervalSeconds
+  };
+}
+
+async function updateSettings(body) {
+  if (typeof body.mockMode === "boolean") config.mockMode = body.mockMode;
+  if (typeof body.cfZoneId === "string") config.cfZoneId = body.cfZoneId.trim();
+  if (typeof body.awsRegion === "string" && body.awsRegion.trim()) config.awsRegion = body.awsRegion.trim();
+  if (typeof body.awsCliBin === "string" && body.awsCliBin.trim()) config.awsCliBin = body.awsCliBin.trim();
+  if (typeof body.probeEndpoints === "string") {
+    config.probeEndpoints = body.probeEndpoints.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof body.speedTestPath === "string" && body.speedTestPath.trim()) {
+    config.speedTestPath = body.speedTestPath.trim();
+  }
+  if (body.autoIntervalSeconds !== undefined) {
+    const interval = Number(body.autoIntervalSeconds);
+    if (Number.isFinite(interval) && interval >= 15) config.autoIntervalSeconds = Math.round(interval);
+  }
+  if (typeof body.cfApiToken === "string" && body.cfApiToken.trim()) {
+    config.cfApiToken = body.cfApiToken.trim();
+  }
+
+  await persistEnv({
+    MOCK_MODE: String(config.mockMode),
+    CF_API_TOKEN: config.cfApiToken,
+    CF_ZONE_ID: config.cfZoneId,
+    AWS_REGION: config.awsRegion,
+    AWS_CLI_BIN: config.awsCliBin,
+    PROBE_ENDPOINTS: config.probeEndpoints.join(","),
+    SPEED_TEST_PATH: config.speedTestPath,
+    AUTO_INTERVAL_SECONDS: String(config.autoIntervalSeconds)
+  });
+  scheduleAutomation();
+}
+
+function scheduleAutomation() {
+  clearInterval(automationTimer);
+  automationTimer = setInterval(() => {
+    runAutomation().catch((error) => logEvent("error", "自动化执行失败", error.message));
+  }, Math.max(config.autoIntervalSeconds, 15) * 1000);
+}
+
+async function persistEnv(values) {
+  let lines = [];
+  try {
+    lines = (await fs.readFile(envPath, "utf8")).split(/\r?\n/);
+  } catch {
+    lines = [];
+  }
+
+  for (const [key, value] of Object.entries(values)) {
+    const index = lines.findIndex((line) => line.trimStart().startsWith(`${key}=`));
+    const nextLine = `${key}=${String(value).replace(/\r?\n/g, "")}`;
+    if (index >= 0) lines[index] = nextLine;
+    else lines.push(nextLine);
+  }
+  await fs.writeFile(envPath, `${lines.filter((line, index, all) => index < all.length - 1 || line !== "").join("\n").trimEnd()}\n`, { mode: 0o600 });
 }
 
 function logEvent(type, title, detail) {
