@@ -1,0 +1,6 @@
+.env
+data/store.json
+DNS-Guardian.zip
+node_modules/
+npm-debug.log*
+.DS_Store
