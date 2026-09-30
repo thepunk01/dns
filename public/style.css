@@ -401,6 +401,36 @@ button:hover {
   overflow-x: auto;
 }
 
+.manage-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.manage-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 720px;
+  flex-wrap: wrap;
+}
+
+.manage-form input,
+.manage-form select {
+  min-width: 150px;
+  flex: 1 1 150px;
+}
+
+.manage-form .check-label {
+  white-space: nowrap;
+}
+
+.danger-button {
+  color: var(--danger);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

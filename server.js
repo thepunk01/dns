@@ -109,6 +109,63 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/cloudflare/import") {
+    const imported = await importCloudflareRecords();
+    sendJson(res, 200, { ok: true, imported });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/aws/import") {
+    const imported = await importAwsInstances();
+    sendJson(res, 200, { ok: true, imported });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/domains") {
+    const body = await readBody(req);
+    const domain = createDomain(body);
+    state.domains.push(domain);
+    await saveStore();
+    logEvent("dns", "添加域名", `${domain.name} 已加入解析管理`);
+    sendJson(res, 200, { ok: true, domain });
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname.match(/^\/api\/domains\/[^/]+$/)) {
+    const domainId = url.pathname.split("/")[3];
+    const index = state.domains.findIndex((domain) => domain.id === domainId);
+    assert(index >= 0, "域名不存在");
+    const [domain] = state.domains.splice(index, 1);
+    await saveStore();
+    logEvent("dns", "删除域名", `${domain.name} 已删除`);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/servers") {
+    const body = await readBody(req);
+    const item = createServer(body);
+    state.servers.push(item);
+    await saveStore();
+    logEvent("aws", "添加服务器", `${item.name} 已加入服务器池`);
+    sendJson(res, 200, { ok: true, server: item });
+    return;
+  }
+
+  if (req.method === "DELETE" && url.pathname.match(/^\/api\/servers\/[^/]+$/)) {
+    const serverId = url.pathname.split("/")[3];
+    const index = state.servers.findIndex((server) => server.id === serverId);
+    assert(index >= 0, "服务器不存在");
+    const [item] = state.servers.splice(index, 1);
+    for (const domain of state.domains) {
+      if (domain.currentServerId === serverId) domain.currentServerId = "";
+    }
+    await saveStore();
+    logEvent("aws", "删除服务器", `${item.name} 已从服务器池移除`);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/settings") {
     const body = await readBody(req);
     await updateSettings(body);
@@ -259,6 +316,91 @@ async function updateCloudflareRecord(domain, ip) {
     throw new Error(payload.errors?.[0]?.message || "Cloudflare 更新失败");
   }
   return payload.result;
+}
+
+function createDomain(body) {
+  const name = String(body.name || "").trim();
+  assert(name, "请输入域名或主机记录");
+  return {
+    id: `domain-${randomUUID()}`,
+    name,
+    type: String(body.type || "A").toUpperCase(),
+    ttl: Number(body.ttl) || 60,
+    proxied: Boolean(body.proxied),
+    cfRecordId: String(body.cfRecordId || "").trim(),
+    currentServerId: String(body.currentServerId || "").trim(),
+    currentIp: String(body.currentIp || "").trim(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function createServer(body) {
+  const name = String(body.name || "").trim();
+  assert(name, "请输入服务器名称");
+  return {
+    id: `srv-${randomUUID()}`,
+    name,
+    provider: String(body.provider || "AWS").trim(),
+    region: String(body.region || config.awsRegion).trim(),
+    publicIp: String(body.publicIp || "").trim(),
+    port: Number(body.port) || 443,
+    awsInstanceId: String(body.awsInstanceId || "").trim(),
+    elasticAllocationId: "",
+    autoReplaceIp: Boolean(body.autoReplaceIp),
+    status: "checking",
+    gfwStatus: "checking",
+    latencyMs: 0,
+    speedMbps: 0,
+    transport: "-",
+    checkedAt: "",
+    updatedAt: new Date().toISOString(),
+    startupScript: String(body.startupScript || "")
+  };
+}
+
+async function importCloudflareRecords() {
+  assert(!config.mockMode, "请先关闭模拟模式");
+  assert((config.cfApiEmail && config.cfApiKey) || config.cfApiToken, "缺少 Cloudflare 邮箱 + API Key");
+  assert(config.cfZoneId, "缺少 Cloudflare Zone ID");
+  const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${config.cfZoneId}/dns_records?per_page=100`, {
+    headers: cloudflareAuthHeaders()
+  });
+  const payload = await response.json();
+  assert(response.ok && payload.success, payload.errors?.[0]?.message || "Cloudflare DNS 记录读取失败");
+  let imported = 0;
+  for (const record of payload.result || []) {
+    if (!record.name || !["A", "AAAA"].includes(record.type)) continue;
+    const existing = state.domains.find((domain) => domain.cfRecordId === record.id || domain.name === record.name);
+    if (existing) {
+      Object.assign(existing, { cfRecordId: record.id, type: record.type, ttl: record.ttl, proxied: Boolean(record.proxied), currentIp: record.content, updatedAt: new Date().toISOString() });
+    } else {
+      state.domains.push({ id: `domain-${randomUUID()}`, name: record.name, type: record.type, ttl: record.ttl, proxied: Boolean(record.proxied), cfRecordId: record.id, currentServerId: "", currentIp: record.content, updatedAt: new Date().toISOString() });
+      imported += 1;
+    }
+  }
+  await saveStore();
+  logEvent("dns", "导入 Cloudflare 记录", `新增 ${imported} 条 DNS 记录`);
+  return imported;
+}
+
+async function importAwsInstances() {
+  assert(!config.mockMode, "请先关闭模拟模式");
+  assert(config.awsAccessKeyId && config.awsSecretAccessKey, "缺少 AWS Access Key ID 或 Secret Access Key");
+  const raw = await awsCli(["ec2", "describe-instances", "--filters", "Name=instance-state-name,Values=running,stopped", "--region", config.awsRegion, "--output", "json"]);
+  const payload = JSON.parse(raw);
+  let imported = 0;
+  for (const reservation of payload.Reservations || []) {
+    for (const instance of reservation.Instances || []) {
+      const existing = state.servers.find((server) => server.awsInstanceId === instance.InstanceId);
+      const name = instance.Tags?.find((tag) => tag.Key === "Name")?.Value || instance.InstanceId;
+      const values = { name, region: config.awsRegion, publicIp: instance.PublicIpAddress || "", awsInstanceId: instance.InstanceId, port: 443, provider: "AWS" };
+      if (existing) Object.assign(existing, values);
+      else { state.servers.push(createServer(values)); imported += 1; }
+    }
+  }
+  await saveStore();
+  logEvent("aws", "导入 AWS 实例", `新增 ${imported} 台 EC2 实例`);
+  return imported;
 }
 
 async function replaceAwsIp(server) {

@@ -60,6 +60,16 @@
             <tbody id="domainRows"></tbody>
           </table>
         </div>
+        <div class="manage-tools">
+          <form id="domainForm" class="manage-form">
+            <input name="name" placeholder="域名，例如 edge.example.com" required />
+            <input name="cfRecordId" placeholder="Cloudflare Record ID" />
+            <input name="currentIp" placeholder="当前 IP" />
+            <select name="currentServerId" id="domainServerSelect"><option value="">不绑定服务器</option></select>
+            <button class="primary" type="submit">添加域名</button>
+          </form>
+          <button id="importCloudflare" type="button">从 Cloudflare 导入 DNS</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -84,6 +94,17 @@
             </thead>
             <tbody id="serverRows"></tbody>
           </table>
+        </div>
+        <div class="manage-tools">
+          <form id="serverForm" class="manage-form">
+            <input name="name" placeholder="服务器名称，例如 香港节点 01" required />
+            <input name="awsInstanceId" placeholder="AWS Instance ID，例如 i-..." />
+            <input name="region" list="awsRegionOptions" placeholder="Region，例如 ap-east-1" />
+            <input name="publicIp" placeholder="公网 IP" />
+            <label class="check-label"><input name="autoReplaceIp" type="checkbox" /> 自动换 IP</label>
+            <button class="primary" type="submit">添加服务器</button>
+          </form>
+          <button id="importAws" type="button">从 AWS 导入实例</button>
         </div>
       </section>
 

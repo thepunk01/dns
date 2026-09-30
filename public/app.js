@@ -69,11 +69,14 @@ function render() {
                 ${server.id === domain.currentServerId ? "当前" : "切换"} ${server.name}
               </button>
             `).join("")}
+            <button onclick="deleteDomain('${domain.id}')" class="danger-button">删除</button>
           </div>
         </td>
       </tr>
     `;
   }).join("");
+
+  $("#domainServerSelect").innerHTML = `<option value="">不绑定服务器</option>${state.servers.map((server) => `<option value="${escapeAttr(server.id)}">${escapeHtml(server.name)}</option>`).join("")}`;
 
   $("#serverRows").innerHTML = state.servers.map((server) => `
     <tr>
@@ -98,6 +101,7 @@ function render() {
         <div class="actions">
           <button onclick="replaceIp('${server.id}')">更换 IP</button>
           <button onclick="runProbe()">探测</button>
+          <button onclick="deleteServer('${server.id}')" class="danger-button">删除</button>
         </div>
       </td>
     </tr>
@@ -204,6 +208,54 @@ async function runProbe() {
     await api("/api/probe/run", { method: "POST" });
   });
 }
+
+async function deleteDomain(domainId) {
+  if (!window.confirm("确定删除这条域名记录吗？")) return;
+  await act("正在删除域名", async () => {
+    await api(`/api/domains/${domainId}`, { method: "DELETE" });
+  });
+}
+
+async function deleteServer(serverId) {
+  if (!window.confirm("确定从服务器池删除这台服务器吗？")) return;
+  await act("正在删除服务器", async () => {
+    await api(`/api/servers/${serverId}`, { method: "DELETE" });
+  });
+}
+
+$("#domainForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await act("正在添加域名", async () => {
+    await api("/api/domains", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form))) });
+    form.reset();
+  });
+});
+
+$("#serverForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = Object.fromEntries(new FormData(form));
+  body.autoReplaceIp = form.elements.autoReplaceIp.checked;
+  await act("正在添加服务器", async () => {
+    await api("/api/servers", { method: "POST", body: JSON.stringify(body) });
+    form.reset();
+  });
+});
+
+$("#importCloudflare").addEventListener("click", async () => {
+  await act("正在从 Cloudflare 导入 DNS", async () => {
+    const result = await api("/api/cloudflare/import", { method: "POST" });
+    toast(`已导入 ${result.imported} 条 DNS 记录`);
+  });
+});
+
+$("#importAws").addEventListener("click", async () => {
+  await act("正在从 AWS 导入实例", async () => {
+    const result = await api("/api/aws/import", { method: "POST" });
+    toast(`已导入 ${result.imported} 台 AWS 实例`);
+  });
+});
 
 async function saveServerConfig(event, serverId) {
   event.preventDefault();
