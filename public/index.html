@@ -135,17 +135,45 @@
           </label>
           <div class="form-grid">
             <label>
-              <span>Cloudflare API Token</span>
-              <input id="cfApiToken" type="password" placeholder="留空保持当前 Token" autocomplete="new-password" />
-              <small id="tokenStatus"></small>
+              <span>Cloudflare 账号邮箱</span>
+              <input id="cfApiEmail" type="email" placeholder="例如：admin@example.com" />
+              <small>用于 Global API Key 认证</small>
             </label>
             <label>
               <span>Cloudflare Zone ID</span>
               <input id="cfZoneId" placeholder="例如：023e105f4ecef8ad9ca31a8372d0c353" />
             </label>
             <label>
+              <span>Cloudflare Global API Key</span>
+              <input id="cfApiKey" type="password" placeholder="留空保持当前 Key" autocomplete="new-password" />
+              <small id="cfKeyStatus"></small>
+            </label>
+            <label>
+              <span>AWS Access Key ID</span>
+              <input id="awsAccessKeyId" type="password" placeholder="留空保持当前 Key" autocomplete="new-password" />
+              <small id="awsAccessStatus"></small>
+            </label>
+            <label>
+              <span>AWS Secret Access Key</span>
+              <input id="awsSecretAccessKey" type="password" placeholder="留空保持当前 Secret" autocomplete="new-password" />
+              <small id="awsSecretStatus"></small>
+            </label>
+            <label>
+              <span>AWS Session Token（可选）</span>
+              <input id="awsSessionToken" type="password" placeholder="临时凭证才需要填写" autocomplete="new-password" />
+            </label>
+            <label>
               <span>AWS Region</span>
-              <input id="awsRegion" placeholder="例如：ap-east-1" />
+              <input id="awsRegion" list="awsRegionOptions" placeholder="例如：ap-east-1" />
+              <datalist id="awsRegionOptions">
+                <option value="ap-east-1">香港</option>
+                <option value="ap-southeast-1">新加坡</option>
+                <option value="ap-northeast-1">东京</option>
+                <option value="us-east-1">美国弗吉尼亚</option>
+                <option value="us-west-2">美国俄勒冈</option>
+                <option value="eu-west-1">爱尔兰</option>
+                <option value="eu-central-1">法兰克福</option>
+              </datalist>
             </label>
             <label>
               <span>AWS CLI 路径或命令</span>
@@ -167,9 +195,22 @@
           </div>
           <div class="settings-actions">
             <button type="submit" class="primary">保存设置</button>
+            <button type="button" id="testCloudflare">测试 Cloudflare</button>
+            <button type="button" id="testAws">测试 AWS 登录</button>
             <span class="hint">最低检测间隔为 15 秒</span>
           </div>
         </form>
+      </section>
+
+      <section class="panel" id="serverSettings">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">AWS Instances</p>
+            <h2>服务器实例与开机脚本</h2>
+          </div>
+          <span class="hint">开机脚本写入 User Data，将在实例下次启动时执行</span>
+        </div>
+        <div id="serverConfigRows" class="server-config-list"></div>
       </section>
     </main>
 

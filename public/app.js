@@ -37,6 +37,7 @@ async function refresh() {
 function render() {
   $("#modeBadge").textContent = state.overview.mockMode ? "模拟模式" : "真实接口";
   renderSettings();
+  renderServerSettings();
   const stats = state.overview.stats;
   $("#stats").innerHTML = [
     ["域名解析", stats.domains, "Cloudflare 记录"],
@@ -115,13 +116,54 @@ function renderSettings() {
   const settings = state.settings;
   if (!settings) return;
   $("#mockMode").checked = settings.mockMode;
+  $("#cfApiEmail").value = settings.cfApiEmail || "";
   $("#cfZoneId").value = settings.cfZoneId || "";
   $("#awsRegion").value = settings.awsRegion || "";
   $("#awsCliBin").value = settings.awsCliBin || "aws";
   $("#probeEndpoints").value = settings.probeEndpoints || "";
   $("#speedTestPath").value = settings.speedTestPath || "/speedtest.bin";
   $("#autoIntervalSeconds").value = settings.autoIntervalSeconds || 60;
-  $("#tokenStatus").textContent = settings.cfApiTokenConfigured ? "当前 Token 已配置，留空则保持不变" : "当前未配置 Token";
+  $("#cfKeyStatus").textContent = settings.cfApiKeyConfigured ? "当前 Key 已配置，留空则保持不变" : "当前未配置 Key";
+  $("#awsAccessStatus").textContent = settings.awsAccessKeyConfigured ? "当前 Access Key 已配置" : "当前未配置";
+  $("#awsSecretStatus").textContent = settings.awsSecretConfigured ? "当前 Secret 已配置" : "当前未配置";
+}
+
+function renderServerSettings() {
+  $("#serverConfigRows").innerHTML = state.servers.map((server) => `
+    <form class="server-config-row" onsubmit="saveServerConfig(event, '${server.id}')">
+      <div class="server-config-title">
+        <strong>${server.name}</strong>
+        <span>${server.publicIp} · ${server.provider}</span>
+      </div>
+      <div class="server-config-fields">
+        <label>
+          <span>AWS Instance ID</span>
+          <input name="awsInstanceId" value="${escapeAttr(server.awsInstanceId || "")}" placeholder="i-0123456789abcdef0" />
+        </label>
+        <label>
+          <span>Region</span>
+          <input name="region" list="awsRegionOptions" value="${escapeAttr(server.region || "")}" placeholder="ap-east-1" />
+        </label>
+        <label class="script-field">
+          <span>开机脚本（User Data）</span>
+          <textarea name="startupScript" rows="3" placeholder="#!/bin/bash">${escapeHtml(server.startupScript || "")}</textarea>
+        </label>
+      </div>
+      <div class="server-config-actions">
+        <label class="check-label"><input name="autoReplaceIp" type="checkbox" ${server.autoReplaceIp ? "checked" : ""} /> 自动换 IP</label>
+        <button type="submit">保存此服务器</button>
+        <button type="button" onclick="applyStartupScript('${server.id}')">写入开机脚本</button>
+      </div>
+    </form>
+  `).join("");
+}
+
+function escapeAttr(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapeHtml(value) {
+  return escapeAttr(value).replace(/'/g, "&#39;");
 }
 
 function statusPill(status, gfwStatus) {
@@ -163,6 +205,28 @@ async function runProbe() {
   });
 }
 
+async function saveServerConfig(event, serverId) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await act("正在保存服务器配置", async () => {
+    await api(`/api/servers/${serverId}/config`, {
+      method: "POST",
+      body: JSON.stringify({
+        awsInstanceId: form.elements.awsInstanceId.value,
+        region: form.elements.region.value,
+        startupScript: form.elements.startupScript.value,
+        autoReplaceIp: form.elements.autoReplaceIp.checked
+      })
+    });
+  });
+}
+
+async function applyStartupScript(serverId) {
+  await act("正在写入 AWS User Data", async () => {
+    await api(`/api/servers/${serverId}/startup-script`, { method: "POST" });
+  });
+}
+
 async function act(message, fn) {
   toast(message);
   try {
@@ -190,7 +254,11 @@ $("#settingsForm").addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({
         mockMode: $("#mockMode").checked,
-        cfApiToken: $("#cfApiToken").value,
+        cfApiEmail: $("#cfApiEmail").value,
+        cfApiKey: $("#cfApiKey").value,
+        awsAccessKeyId: $("#awsAccessKeyId").value,
+        awsSecretAccessKey: $("#awsSecretAccessKey").value,
+        awsSessionToken: $("#awsSessionToken").value,
         cfZoneId: $("#cfZoneId").value,
         awsRegion: $("#awsRegion").value,
         awsCliBin: $("#awsCliBin").value,
@@ -199,7 +267,22 @@ $("#settingsForm").addEventListener("submit", async (event) => {
         autoIntervalSeconds: Number($("#autoIntervalSeconds").value)
       })
     });
-    $("#cfApiToken").value = "";
+    $("#cfApiKey").value = "";
+    $("#awsAccessKeyId").value = "";
+    $("#awsSecretAccessKey").value = "";
+    $("#awsSessionToken").value = "";
+  });
+});
+
+$("#testCloudflare").addEventListener("click", async () => {
+  await act("正在测试 Cloudflare 认证", async () => {
+    await api("/api/cloudflare/test", { method: "POST" });
+  });
+});
+
+$("#testAws").addEventListener("click", async () => {
+  await act("正在测试 AWS 登录", async () => {
+    await api("/api/aws/test", { method: "POST" });
   });
 });
 refresh();

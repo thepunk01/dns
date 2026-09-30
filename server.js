@@ -19,10 +19,15 @@ const config = {
   host: env.HOST || "0.0.0.0",
   appName: env.APP_NAME || "DNS Guardian",
   mockMode: String(env.MOCK_MODE ?? "true").toLowerCase() !== "false",
+  cfApiEmail: env.CF_API_EMAIL || "",
+  cfApiKey: env.CF_API_KEY || "",
   cfApiToken: env.CF_API_TOKEN || "",
   cfZoneId: env.CF_ZONE_ID || "",
   awsRegion: env.AWS_REGION || "ap-east-1",
   awsCliBin: env.AWS_CLI_BIN || "aws",
+  awsAccessKeyId: env.AWS_ACCESS_KEY_ID || "",
+  awsSecretAccessKey: env.AWS_SECRET_ACCESS_KEY || "",
+  awsSessionToken: env.AWS_SESSION_TOKEN || "",
   probeEndpoints: (env.PROBE_ENDPOINTS || "").split(",").map((item) => item.trim()).filter(Boolean),
   speedTestPath: env.SPEED_TEST_PATH || "/speedtest.bin",
   autoIntervalSeconds: Number(env.AUTO_INTERVAL_SECONDS || 60)
@@ -94,11 +99,49 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/cloudflare/test") {
+    sendJson(res, 200, { ok: true, account: await testCloudflare() });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/aws/test") {
+    sendJson(res, 200, { ok: true, identity: await testAws() });
+    return;
+  }
+
   if (req.method === "POST" && url.pathname === "/api/settings") {
     const body = await readBody(req);
     await updateSettings(body);
     logEvent("system", "保存系统设置", `运行模式已切换为${config.mockMode ? "模拟模式" : "真实接口"}`);
     sendJson(res, 200, { ok: true, settings: getSettings() });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname.match(/^\/api\/servers\/[^/]+\/config$/)) {
+    const serverId = url.pathname.split("/")[3];
+    const item = state.servers.find((server) => server.id === serverId);
+    const body = await readBody(req);
+    assert(item, "服务器不存在");
+    if (typeof body.awsInstanceId === "string") item.awsInstanceId = body.awsInstanceId.trim();
+    if (typeof body.region === "string" && body.region.trim()) item.region = body.region.trim();
+    if (typeof body.startupScript === "string") item.startupScript = body.startupScript;
+    if (typeof body.autoReplaceIp === "boolean") item.autoReplaceIp = body.autoReplaceIp;
+    await saveStore();
+    logEvent("aws", "保存服务器配置", `${item.name} 的实例、区域和开机脚本已更新`);
+    sendJson(res, 200, { ok: true, server: item });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname.match(/^\/api\/servers\/[^/]+\/startup-script$/)) {
+    const serverId = url.pathname.split("/")[3];
+    const item = state.servers.find((server) => server.id === serverId);
+    assert(item, "服务器不存在");
+    assert(config.awsAccessKeyId && config.awsSecretAccessKey, "缺少 AWS Access Key ID 或 Secret Access Key");
+    assert(item.awsInstanceId, `${item.name} 缺少 awsInstanceId`);
+    assert(item.startupScript?.trim(), `${item.name} 尚未填写开机脚本`);
+    await updateAwsUserData(item, item.region || config.awsRegion);
+    logEvent("aws", "写入开机脚本", `${item.name} 的 User Data 已更新`);
+    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -193,14 +236,14 @@ async function runProbeAndSpeed() {
 
 async function updateCloudflareRecord(domain, ip) {
   if (config.mockMode) return { id: domain.cfRecordId || "mock-record", content: ip };
-  assert(config.cfApiToken, "缺少 CF_API_TOKEN");
+  assert((config.cfApiEmail && config.cfApiKey) || config.cfApiToken, "缺少 Cloudflare 邮箱 + API Key");
   assert(config.cfZoneId, "缺少 CF_ZONE_ID");
   assert(domain.cfRecordId, `${domain.name} 缺少 cfRecordId`);
 
   const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${config.cfZoneId}/dns_records/${domain.cfRecordId}`, {
     method: "PATCH",
     headers: {
-      Authorization: `Bearer ${config.cfApiToken}`,
+      ...cloudflareAuthHeaders(),
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -226,8 +269,10 @@ async function replaceAwsIp(server) {
     };
   }
 
+  assert(config.awsAccessKeyId && config.awsSecretAccessKey, "缺少 AWS Access Key ID 或 Secret Access Key");
   assert(server.awsInstanceId, `${server.name} 缺少 awsInstanceId`);
-  const allocate = await awsCli(["ec2", "allocate-address", "--domain", "vpc", "--region", config.awsRegion, "--output", "json"]);
+  const region = server.region || config.awsRegion;
+  const allocate = await awsCli(["ec2", "allocate-address", "--domain", "vpc", "--region", region, "--output", "json"]);
   const allocation = JSON.parse(allocate);
   await awsCli([
     "ec2",
@@ -238,14 +283,22 @@ async function replaceAwsIp(server) {
     allocation.AllocationId,
     "--allow-reassociation",
     "--region",
-    config.awsRegion
+    region
   ]);
   return { publicIp: allocation.PublicIp, allocationId: allocation.AllocationId };
 }
 
 function awsCli(args) {
   return new Promise((resolve, reject) => {
-    execFile(config.awsCliBin, args, { timeout: 60000 }, (error, stdout, stderr) => {
+    execFile(config.awsCliBin, args, {
+      timeout: 60000,
+      env: {
+        ...process.env,
+        AWS_ACCESS_KEY_ID: config.awsAccessKeyId,
+        AWS_SECRET_ACCESS_KEY: config.awsSecretAccessKey,
+        ...(config.awsSessionToken ? { AWS_SESSION_TOKEN: config.awsSessionToken } : {})
+      }
+    }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(stderr || error.message));
         return;
@@ -253,6 +306,45 @@ function awsCli(args) {
       resolve(stdout);
     });
   });
+}
+
+async function updateAwsUserData(server, region) {
+  const encoded = Buffer.from(server.startupScript, "utf8").toString("base64");
+  await awsCli([
+    "ec2", "modify-instance-attribute",
+    "--instance-id", server.awsInstanceId,
+    "--user-data", `Value=${encoded}`,
+    "--region", region
+  ]);
+}
+
+async function testAws() {
+  if (config.mockMode) return { UserId: "mock-user", Account: "mock-account", Arn: "mock-aws-role" };
+  assert(config.awsAccessKeyId && config.awsSecretAccessKey, "缺少 AWS Access Key ID 或 Secret Access Key");
+  return JSON.parse(await awsCli(["sts", "get-caller-identity", "--output", "json"]));
+}
+
+async function testCloudflare() {
+  if (config.mockMode) return { id: "mock-account", email: "mock@example.com" };
+  assert((config.cfApiEmail && config.cfApiKey) || config.cfApiToken, "缺少 Cloudflare 邮箱 + API Key");
+  const response = await fetch("https://api.cloudflare.com/client/v4/user", {
+    headers: cloudflareAuthHeaders()
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.errors?.[0]?.message || "Cloudflare 认证失败");
+  }
+  return payload.result;
+}
+
+function cloudflareAuthHeaders() {
+  if (config.cfApiEmail && config.cfApiKey) {
+    return {
+      "X-Auth-Email": config.cfApiEmail,
+      "X-Auth-Key": config.cfApiKey
+    };
+  }
+  return { Authorization: `Bearer ${config.cfApiToken}` };
 }
 
 async function probeReachability(server) {
@@ -417,10 +509,14 @@ async function saveStore() {
 function getSettings() {
   return {
     mockMode: config.mockMode,
+    cfApiEmail: config.cfApiEmail,
+    cfApiKeyConfigured: Boolean(config.cfApiKey),
     cfApiTokenConfigured: Boolean(config.cfApiToken),
     cfZoneId: config.cfZoneId,
     awsRegion: config.awsRegion,
     awsCliBin: config.awsCliBin,
+    awsAccessKeyConfigured: Boolean(config.awsAccessKeyId),
+    awsSecretConfigured: Boolean(config.awsSecretAccessKey),
     probeEndpoints: config.probeEndpoints.join(","),
     speedTestPath: config.speedTestPath,
     autoIntervalSeconds: config.autoIntervalSeconds
@@ -429,6 +525,7 @@ function getSettings() {
 
 async function updateSettings(body) {
   if (typeof body.mockMode === "boolean") config.mockMode = body.mockMode;
+  if (typeof body.cfApiEmail === "string") config.cfApiEmail = body.cfApiEmail.trim();
   if (typeof body.cfZoneId === "string") config.cfZoneId = body.cfZoneId.trim();
   if (typeof body.awsRegion === "string" && body.awsRegion.trim()) config.awsRegion = body.awsRegion.trim();
   if (typeof body.awsCliBin === "string" && body.awsCliBin.trim()) config.awsCliBin = body.awsCliBin.trim();
@@ -445,13 +542,30 @@ async function updateSettings(body) {
   if (typeof body.cfApiToken === "string" && body.cfApiToken.trim()) {
     config.cfApiToken = body.cfApiToken.trim();
   }
+  if (typeof body.cfApiKey === "string" && body.cfApiKey.trim()) {
+    config.cfApiKey = body.cfApiKey.trim();
+  }
+  if (typeof body.awsAccessKeyId === "string" && body.awsAccessKeyId.trim()) {
+    config.awsAccessKeyId = body.awsAccessKeyId.trim();
+  }
+  if (typeof body.awsSecretAccessKey === "string" && body.awsSecretAccessKey.trim()) {
+    config.awsSecretAccessKey = body.awsSecretAccessKey.trim();
+  }
+  if (typeof body.awsSessionToken === "string") {
+    config.awsSessionToken = body.awsSessionToken.trim();
+  }
 
   await persistEnv({
     MOCK_MODE: String(config.mockMode),
+    CF_API_EMAIL: config.cfApiEmail,
+    CF_API_KEY: config.cfApiKey,
     CF_API_TOKEN: config.cfApiToken,
     CF_ZONE_ID: config.cfZoneId,
     AWS_REGION: config.awsRegion,
     AWS_CLI_BIN: config.awsCliBin,
+    AWS_ACCESS_KEY_ID: config.awsAccessKeyId,
+    AWS_SECRET_ACCESS_KEY: config.awsSecretAccessKey,
+    AWS_SESSION_TOKEN: config.awsSessionToken,
     PROBE_ENDPOINTS: config.probeEndpoints.join(","),
     SPEED_TEST_PATH: config.speedTestPath,
     AUTO_INTERVAL_SECONDS: String(config.autoIntervalSeconds)

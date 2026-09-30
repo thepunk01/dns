@@ -29,8 +29,8 @@ MOCK_MODE=false
 
 ## 真实环境建议
 
-1. Cloudflare 创建 API Token，权限至少包含 `Zone:Read`、`DNS:Edit`。
-2. AWS 服务器安装 `awscli`，并配置有 `ec2:AllocateAddress`、`ec2:AssociateAddress`、`ec2:DescribeInstances` 等权限的 IAM。
+1. Cloudflare 使用账号邮箱 + Global API Key，或使用面板兼容的 API Token；API Key 仅保存到服务器本地 `.env`。
+2. AWS 服务器安装 `awscli`，面板填写 Access Key ID、Secret Access Key，并配置有 `ec2:AllocateAddress`、`ec2:AssociateAddress`、`ec2:ModifyInstanceAttribute`、`sts:GetCallerIdentity` 等权限的 IAM。
 3. 国内外分别放置轻量探测端点，用于判断目标 IP 是否可达。
 4. 服务器放置小文件 `/speedtest.bin`，后台会用它估算实时下载速率。
 
@@ -116,14 +116,17 @@ curl -fsSL https://raw.githubusercontent.com/thepunk01/dns/main/deploy/install.s
 
 安装完成后打开管理页面，滚动到页面底部的“系统设置”，可以直接填写：
 
-- Cloudflare API Token
+- Cloudflare 账号邮箱 + Global API Key
 - Cloudflare Zone ID
-- AWS Region
-- AWS CLI 路径或命令
+- AWS Access Key ID + Secret Access Key
+- IAM 权限至少需要 `sts:GetCallerIdentity`、`ec2:AllocateAddress`、`ec2:AssociateAddress`、`ec2:DescribeInstances`、`ec2:DescribeAddresses`、`ec2:ModifyInstanceAttribute`
+- AWS Region 和 AWS CLI 路径
 - 国内探测端点
 - 自动检测间隔
 - 模拟模式 / 真实接口模式
 
-保存后会写入服务器本地 `.env`，Token 不会在页面回显。`.env` 已加入 `.gitignore`，不会推送到 GitHub。
+保存后会写入服务器本地 `.env`，Key/Secret 不会在页面回显。每台服务器还可以单独配置 AWS Instance ID、Region 和 User Data 开机脚本。`.env` 已加入 `.gitignore`，不会推送到 GitHub。
+
+服务器配置里的“写入开机脚本”会更新 AWS User Data，通常需要实例处于已停止状态；脚本会在实例下次启动时执行。“更换 IP”只负责申请并绑定新的 Elastic IP，不会自动重启实例。
 
 当前版本尚未内置管理员登录。正式公网使用时，建议先通过安全组限制 `8787` 来源，或在 Nginx/Caddy 前面增加 HTTPS 和 Basic Auth。
